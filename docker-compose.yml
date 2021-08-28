@@ -1,7 +1,7 @@
 version: '3'
 services:
   ruby:
-    image: ruby:2.6.4
+    image: ruby:3
     environment:
       - TZ=Asia/Tokyo
     volumes:
