@@ -3,5 +3,5 @@
 ## Usage
 
 ```bash
-docker compose run ruby bash
+docker compose run ruby bash -c 'hanami new ${PROJECT} --database=mysql'
 ```
