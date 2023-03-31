@@ -1,7 +1,7 @@
-# Ruby Docker
+# Ruby
 
 ## Usage
 
 ```bash
-docker compose run ruby bash
+docker-compose run --rm ruby bash
 ```
