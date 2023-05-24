@@ -1,7 +1,8 @@
 version: "3"
 services:
   golang:
-    build: .
+    image: golang:1
     volumes:
       - ./:/go/src
-    tty: true
+    working_dir: /go/src
+    command: go run main.go
