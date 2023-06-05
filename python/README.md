@@ -3,5 +3,5 @@
 ## Usage
 
 ```bash
-docker-compose run --rm python bash
+docker-compose run --rm app bash
 ```
