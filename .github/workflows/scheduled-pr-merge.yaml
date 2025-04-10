@@ -4,7 +4,7 @@ on:
   issue_comment:
     types: [created]
   schedule:
-    - cron: '0 0 * * *'  # 日毎に実行
+    - cron: '0 0 1 * *'  # 月毎に実行
 
 jobs:
   # コメントを受け取った時のジョブ
