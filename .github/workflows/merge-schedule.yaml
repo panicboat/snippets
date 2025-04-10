@@ -39,6 +39,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const pullRequests = JSON.parse(`${{ steps.merge-schedule.outputs.scheduled_pull_requests }}`);
+            core.info("Scheduled Pull Requests:", pullRequests);
             const now = new Date();
             for (const item of pullRequests) {
               // Fetch the pull request details
@@ -57,14 +58,26 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pullRequests = JSON.parse(`${{ steps.merge-schedule.outputs.merged_pull_requests }}`);
-            const now = new Date();
-            for (const item of pullRequests) {
-              // Fetch the pull request details
-              const { data: pullRequest } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: item.number,
-              });
-              // Do something with the pull request
+            const scheduledPullRequests = JSON.parse(`${{ steps.merge-schedule.outputs.scheduled_pull_requests }}`);
+            const mergedPullRequests = JSON.parse(`${{ steps.merge-schedule.outputs.merged_pull_requests || '[]' }}`);
+            core.info("Scheduled Pull Requests:", scheduledPullRequests);
+            core.info("Merged Pull Requests:", mergedPullRequests);
+            const mergedNumbers = mergedPullRequests.map(p => p.number);
+
+            for (const item of scheduledPullRequests) {
+              if (mergedNumbers.includes(item.number)) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: item.number,
+                  body: `:tada: PR #${item.number} は正常にマージされました。`
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: item.number,
+                  body: `:x: PR #${item.number} はマージに失敗した可能性があります。`
+                });
+              }
             }
