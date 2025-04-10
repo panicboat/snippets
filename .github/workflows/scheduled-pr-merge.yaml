@@ -1,0 +1,192 @@
+name: PR Scheduled Merge System
+
+on:
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '*/5 * * * *'  # 5分ごとに実行
+
+jobs:
+  # コメントを受け取った時のジョブ
+  schedule_merge_request:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/schedule-merge') || startsWith(github.event.comment.body, '/schedule-merge-jst'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract merge time from comment
+        id: extract_time
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+
+          # コマンドのタイプをチェック
+          if [[ "$COMMENT" == "/schedule-merge-jst"* ]]; then
+            # JST (Asia/Tokyo) タイムゾーン指定の場合
+            JST_TIME=$(echo "$COMMENT" | grep -oP '/schedule-merge-jst \K[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}')
+            if [ -z "$JST_TIME" ]; then
+              echo "フォーマットが正しくありません。/schedule-merge-jst YYYY-MM-DDThh:mm:ss の形式で指定してください。"
+              exit 1
+            fi
+
+            # JST から UTC へ変換 (JST = UTC+9)
+            MERGE_TIME_UTC=$(TZ=UTC date -d "TZ=\"Asia/Tokyo\" $JST_TIME" "+%Y-%m-%dT%H:%M:%SZ")
+            TIMEZONE="JST (Asia/Tokyo)"
+            ORIGINAL_TIME="$JST_TIME JST"
+          else
+            # UTC タイムゾーン指定の場合
+            MERGE_TIME_UTC=$(echo "$COMMENT" | grep -oP '/schedule-merge \K[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z')
+            if [ -z "$MERGE_TIME_UTC" ]; then
+              echo "フォーマットが正しくありません。/schedule-merge YYYY-MM-DDThh:mm:ssZ の形式で指定してください。"
+              exit 1
+            fi
+            TIMEZONE="UTC (協定世界時)"
+            ORIGINAL_TIME="$MERGE_TIME_UTC"
+          fi
+
+          NOW=$(date -u +%s)
+          TARGET=$(date -u -d "$MERGE_TIME_UTC" +%s)
+
+          # if [ $TARGET -le $NOW ]; then
+          #   echo "指定された時間は過去です。"
+          #   exit 1
+          # fi
+
+          echo "merge_time_utc=$MERGE_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "timezone=$TIMEZONE" >> $GITHUB_OUTPUT
+          echo "original_time=$ORIGINAL_TIME" >> $GITHUB_OUTPUT
+
+      - name: Schedule PR for merge
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const mergeTimeUTC = '${{ steps.extract_time.outputs.merge_time_utc }}';
+            const timezone = '${{ steps.extract_time.outputs.timezone }}';
+            const originalTime = '${{ steps.extract_time.outputs.original_time }}';
+
+            // スケジュール情報をラベルとして追加
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['scheduled-merge']
+            });
+
+            // コメントにマージ時間情報を追加
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `✅ PR は ${originalTime} (${timezone}) にマージされるようスケジュールされました。\nUTC: ${mergeTimeUTC}`
+            });
+
+            // マージ時間をPRの説明に追記
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `SCHEDULED_MERGE_TIME=${mergeTimeUTC}`
+            });
+
+  # 定期的に実行されるジョブ
+  check_and_merge:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Find and process scheduled merges
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const now = new Date().toISOString();
+            console.log(`現在の時刻: ${now}`);
+
+            // 'scheduled-merge' ラベルが付いた PR を検索
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+
+            // スケジュールされたマージの候補を見つける
+            for (const pull of pulls) {
+              const prNumber = pull.number;
+
+              // ラベルを確認
+              const hasScheduleLabel = pull.labels.some(label => label.name === 'scheduled-merge');
+              if (!hasScheduleLabel) continue;
+
+              console.log(`PR #${prNumber} はマージ予定としてマークされています`);
+
+              // コメントからスケジュールされた時間を見つける
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber
+              });
+
+              // スケジュール時間を探す
+              let scheduledTime = null;
+              for (const comment of comments) {
+                const match = comment.body.match(/SCHEDULED_MERGE_TIME=(.+)$/);
+                if (match) {
+                  scheduledTime = new Date(match[1]);
+                  break;
+                }
+              }
+
+              if (!scheduledTime) {
+                console.log(`PR #${prNumber} にスケジュール時間が見つかりませんでした`);
+                continue;
+              }
+
+              const currentTime = new Date();
+              console.log(`スケジュール時間: ${scheduledTime.toISOString()}`);
+
+              // 現在時刻が予定時刻を過ぎていたらマージする
+              if (currentTime >= scheduledTime) {
+                console.log(`PR #${prNumber} のマージ時間になりました`);
+
+                try {
+                  // PR をマージ
+                  await github.rest.pulls.merge({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    merge_method: 'merge'
+                  });
+
+                  // ラベルを削除
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    name: 'scheduled-merge'
+                  });
+
+                  // 完了メッセージを投稿
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    body: '✅ スケジュールに従って PR をマージしました。'
+                  });
+
+                  console.log(`PR #${prNumber} のマージが完了しました`);
+                } catch (error) {
+                  console.error(`PR #${prNumber} のマージに失敗しました:`, error);
+
+                  // エラーメッセージを投稿
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    body: `❌ マージに失敗しました: ${error.message}`
+                  });
+                }
+              } else {
+                console.log(`PR #${prNumber} はまだマージ時間ではありません`);
+              }
+            }
