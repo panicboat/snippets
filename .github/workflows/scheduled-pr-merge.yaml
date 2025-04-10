@@ -1,4 +1,4 @@
-name: PR Scheduled Merge System
+name: Scheduled PR Merge
 
 on:
   issue_comment:
