@@ -44,7 +44,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `✅ This PR is scheduled to be merged at ${ORIGINAL_TIME} (${TIMEZONE}).`
+              body: `✅ This PR is scheduled to be merged at ${process.env.ORIGINAL_TIME} (${process.env.TIMEZONE}).`
             });
 
             // Add merge time to PR description
@@ -52,7 +52,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `SCHEDULED_MERGE_TIME=${MERGE_TIME_UTC}`
+              body: `SCHEDULED_MERGE_TIME=${process.env.MERGE_TIME_UTC}`
             });
 
   # Job that runs periodically
