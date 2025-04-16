@@ -4,7 +4,8 @@ on:
   issue_comment:
     types: [created]
   schedule:
-    - cron: '0 15 * * *'  # Run every day at midnight JST
+    # - cron: '0 15 * * *'  # Run every day at midnight JST
+    - cron: '0/30 * * * *'  # Run every day at midnight JST
 
 jobs:
   # Job that runs when a comment is received
@@ -122,7 +123,7 @@ jobs:
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: prNumber,
-                    merge_method: 'merge'
+                    merge_method: 'squash'
                   });
 
                   // Remove the label
