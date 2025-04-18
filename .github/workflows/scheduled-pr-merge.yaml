@@ -4,8 +4,7 @@ on:
   issue_comment:
     types: [created]
   schedule:
-    # - cron: '0 15 * * *'  # Run every day at midnight JST
-    - cron: '0/30 * * * *'  # Run every day at midnight JST
+    - cron: '0 15 * * *'  # Run every day at midnight JST
 
 jobs:
   # Job that runs when a comment is received
